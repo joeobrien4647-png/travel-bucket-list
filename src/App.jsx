@@ -344,6 +344,19 @@ export default function TravelBucketList() {
 
   useEffect(() => { try { localStorage.setItem("travel-dark-mode", darkMode); } catch {} }, [darkMode]);
 
+  const filtered = trips.filter(t => {
+    if (filterStatus !== "All" && t.status !== filterStatus) return false;
+    if (filterCategory !== "All" && t.category !== filterCategory) return false;
+    if (filterFavourites && !t.favourite) return false;
+    return true;
+  }).sort((a, b) => {
+    if (sortBy === "priority") return b.priority - a.priority;
+    if (sortBy === "cost") return a.costEstimate - b.costEstimate;
+    if (sortBy === "name") return a.name.localeCompare(b.name);
+    if (sortBy === "nights") return b.nights - a.nights;
+    return 0;
+  });
+
   useEffect(() => {
     const handleKey = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
@@ -454,19 +467,6 @@ export default function TravelBucketList() {
     }
     setTrips(prev => prev.map(t => t.id === updatedTrip.id ? updatedTrip : t));
   };
-
-  const filtered = trips.filter(t => {
-    if (filterStatus !== "All" && t.status !== filterStatus) return false;
-    if (filterCategory !== "All" && t.category !== filterCategory) return false;
-    if (filterFavourites && !t.favourite) return false;
-    return true;
-  }).sort((a, b) => {
-    if (sortBy === "priority") return b.priority - a.priority;
-    if (sortBy === "cost") return a.costEstimate - b.costEstimate;
-    if (sortBy === "name") return a.name.localeCompare(b.name);
-    if (sortBy === "nights") return b.nights - a.nights;
-    return 0;
-  });
 
   const totalCost = trips.reduce((s, t) => s + (t.costEstimate || 0), 0);
   const countries = new Set(trips.map(t => t.destination)).size;
