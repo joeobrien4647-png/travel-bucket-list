@@ -812,6 +812,21 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
   const [dims, setDims] = useState({ w: 900, h: 480 });
   const [rotation, setRotation] = useState([0, -20, 0]);
   const [showRoute, setShowRoute] = useState(true);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [mapMode, setMapMode] = useState("globe");
+  const [leafletReady, setLeafletReady] = useState(false);
+
+  // Load Leaflet CSS + JS via CDN
+  useEffect(() => {
+    if (window.L) { setLeafletReady(true); return; }
+    const link = document.createElement("link");
+    link.rel = "stylesheet"; link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(link);
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => setLeafletReady(true);
+    document.head.appendChild(script);
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -827,11 +842,11 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
   }, []);
 
   useEffect(() => {
-    if (!worldData || !svgRef.current) return;
+    if (!worldData || !svgRef.current || mapMode !== "globe") return;
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    const scale = Math.min(dims.w, dims.h) / 2.2;
+    const scale = Math.min(dims.w, dims.h) / 2.2 * zoomLevel;
     const projection = d3.geoOrthographic()
       .scale(scale)
       .translate([dims.w / 2, dims.h / 2])
@@ -885,7 +900,7 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
         });
     }
 
-    // Drag to rotate
+    // Drag to rotate + scroll to zoom
     svg.call(d3.drag()
       .on("drag", (event) => {
         const k = 75 / scale;
@@ -896,6 +911,11 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
         ]);
       })
     ).style("cursor", "grab");
+
+    svg.on("wheel", (event) => {
+      event.preventDefault();
+      setZoomLevel(z => Math.min(8, Math.max(0.8, z * (event.deltaY < 0 ? 1.12 : 0.89))));
+    }, { passive: false });
 
     // Year-color-coded route lines: London → trip1 → trip2 → ... → London
     if (showRoute) {
@@ -1032,7 +1052,7 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
       g.on("mouseleave", () => setHoveredTrip(null));
     });
 
-  }, [worldData, trips, allTrips, dims, selectedTrip, hoveredTrip, rotation, c, showRoute]);
+  }, [worldData, trips, allTrips, dims, selectedTrip, hoveredTrip, rotation, c, showRoute, zoomLevel, mapMode]);
 
   // Auto-rotate to selected trip
   useEffect(() => {
@@ -1062,14 +1082,38 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
     document.head.appendChild(s);
   }, []);
 
+  const MAP_MODES = [
+    { key: "globe", label: "Globe", icon: Globe },
+    { key: "street", label: "Street" },
+    { key: "satellite", label: "Satellite" },
+    { key: "terrain", label: "Terrain" },
+  ];
+
   return (
     <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
       <div ref={containerRef} style={{ flex: "1 1 600px", minWidth: 300 }}>
         <div style={{ background: c.card, borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", position: "relative" }}>
-          <svg ref={svgRef} width={dims.w} height={dims.h} style={{ display: "block" }} />
-          <button onClick={() => setShowRoute(r => !r)} style={{ position: "absolute", top: 10, right: 10, background: showRoute ? c.gold : c.card, color: showRoute ? "#fff" : c.textMuted, border: `1px solid ${showRoute ? c.gold : c.border}`, borderRadius: 6, padding: "4px 10px", fontFamily: "DM Sans, sans-serif", fontSize: 10, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, backdropFilter: "blur(4px)" }}>
-            <Plane size={10} /> Route
-          </button>
+          {mapMode === "globe" ? (
+            <svg ref={svgRef} width={dims.w} height={dims.h} style={{ display: "block" }} />
+          ) : leafletReady ? (
+            <LeafletMap trips={trips} selectedTrip={selectedTrip} setSelectedTrip={setSelectedTrip} hoveredTrip={hoveredTrip} setHoveredTrip={setHoveredTrip} mapMode={mapMode} dims={dims} />
+          ) : (
+            <div style={{ width: dims.w, height: dims.h, display: "flex", alignItems: "center", justifyContent: "center", color: c.textMuted, fontFamily: "DM Sans, sans-serif", fontSize: 13 }}>Loading map...</div>
+          )}
+          {/* Map mode toggle */}
+          <div style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 3, background: "rgba(27,40,56,0.75)", borderRadius: 8, padding: 3, backdropFilter: "blur(6px)" }}>
+            {MAP_MODES.map(m => (
+              <button key={m.key} onClick={() => setMapMode(m.key)} style={{ background: mapMode === m.key ? c.gold : "transparent", color: mapMode === m.key ? "#fff" : "rgba(255,255,255,0.7)", border: "none", borderRadius: 6, padding: "4px 10px", fontFamily: "DM Sans, sans-serif", fontSize: 10, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, transition: "all 0.2s" }}>
+                {m.icon && <m.icon size={10} />} {m.label}
+              </button>
+            ))}
+          </div>
+          {/* Route toggle — globe only */}
+          {mapMode === "globe" && (
+            <button onClick={() => setShowRoute(r => !r)} style={{ position: "absolute", top: 10, right: 10, background: showRoute ? c.gold : c.card, color: showRoute ? "#fff" : c.textMuted, border: `1px solid ${showRoute ? c.gold : c.border}`, borderRadius: 6, padding: "4px 10px", fontFamily: "DM Sans, sans-serif", fontSize: 10, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, backdropFilter: "blur(4px)" }}>
+              <Plane size={10} /> Route
+            </button>
+          )}
         </div>
       </div>
 
@@ -1097,6 +1141,78 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
       </div>
     </div>
   );
+}
+
+function LeafletMap({ trips, selectedTrip, setSelectedTrip, hoveredTrip, setHoveredTrip, mapMode, dims }) {
+  const c = useTheme();
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const tileRef = useRef(null);
+  const markersRef = useRef([]);
+
+  const TILE_URLS = {
+    street: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    satellite: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    terrain: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+  };
+  const TILE_ATTR = {
+    street: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    satellite: '&copy; <a href="https://www.esri.com">Esri</a>',
+    terrain: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+  };
+
+  // Initialize map
+  useEffect(() => {
+    if (!window.L || !mapRef.current || mapInstance.current) return;
+    const map = window.L.map(mapRef.current, { zoomControl: true, attributionControl: true }).setView([51.51, -0.13], 3);
+    tileRef.current = window.L.tileLayer(TILE_URLS[mapMode] || TILE_URLS.street, {
+      attribution: TILE_ATTR[mapMode] || TILE_ATTR.street,
+      maxZoom: 19,
+    }).addTo(map);
+    mapInstance.current = map;
+    return () => { map.remove(); mapInstance.current = null; };
+  }, []);
+
+  // Switch tile layer
+  useEffect(() => {
+    if (!mapInstance.current || !tileRef.current) return;
+    const key = mapMode === "globe" ? "street" : mapMode;
+    tileRef.current.setUrl(TILE_URLS[key] || TILE_URLS.street);
+  }, [mapMode]);
+
+  // Render trip markers
+  useEffect(() => {
+    if (!mapInstance.current) return;
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+    trips.forEach(trip => {
+      if (!trip.lat || !trip.lng) return;
+      const color = STATUS_CONFIG[trip.status]?.color || COLORS.warmGrey;
+      const isSelected = selectedTrip?.id === trip.id;
+      const isHovered = hoveredTrip?.id === trip.id;
+      const radius = isSelected ? 10 : isHovered ? 8 : 6;
+      const marker = window.L.circleMarker([trip.lat, trip.lng], {
+        radius,
+        fillColor: color,
+        color: isSelected ? COLORS.gold : "#fff",
+        weight: isSelected ? 3 : 1.5,
+        fillOpacity: 0.9,
+      }).addTo(mapInstance.current);
+      marker.bindTooltip(`<strong>${trip.name}</strong><br/>${trip.destination}`, { direction: "top", offset: [0, -8] });
+      marker.on("click", () => setSelectedTrip(trip));
+      marker.on("mouseover", () => setHoveredTrip(trip));
+      marker.on("mouseout", () => setHoveredTrip(null));
+      markersRef.current.push(marker);
+    });
+  }, [trips, selectedTrip?.id, hoveredTrip?.id]);
+
+  // Pan to selected trip
+  useEffect(() => {
+    if (!mapInstance.current || !selectedTrip?.lat || !selectedTrip?.lng) return;
+    mapInstance.current.flyTo([selectedTrip.lat, selectedTrip.lng], Math.max(mapInstance.current.getZoom(), 6), { duration: 0.8 });
+  }, [selectedTrip?.id]);
+
+  return <div ref={mapRef} style={{ width: dims.w, height: dims.h, borderRadius: 12 }} />;
 }
 
 function TripDetail({ trip, allTrips, onEdit, onDelete, onClose, onSelectTrip }) {
