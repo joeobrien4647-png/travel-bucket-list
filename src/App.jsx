@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 import * as d3 from "d3";
-import { Plus, MapPin, Calendar, PoundSterling, Plane, Star, Edit2, Trash2, X, ChevronDown, ChevronUp, Globe, Heart, Filter, ArrowUpDown, Clock, ChevronLeft, ChevronRight, AlertTriangle, RotateCcw, Search, BarChart3, Sparkles, Undo2, Download, Shuffle, Link2, Wallet, Columns, Printer, Moon, Sun, Layout, Check } from "lucide-react";
+import { Plus, MapPin, Calendar, PoundSterling, Plane, Star, Edit2, Trash2, X, ChevronDown, ChevronUp, Globe, Heart, Filter, ArrowUpDown, Clock, ChevronLeft, ChevronRight, AlertTriangle, RotateCcw, Search, BarChart3, Sparkles, Undo2, Download, Shuffle, Link2, Wallet, Columns, Printer, Moon, Sun, Layout, Check, Share2, Image, Zap } from "lucide-react";
 
 const COLORS = {
   bg: "#FAF7F2",
@@ -98,6 +98,32 @@ function getContinent(trip) {
   if (lng > 25 && lat > 0) return "Asia";
   return "Africa";
 }
+
+// Climate zones for weather sparklines — monthly avg temps (°C)
+const CLIMATE_ZONES = [
+  { name: "tropical", maxLat: 15, temps: [27,27,28,28,28,27,27,27,27,27,27,27] },
+  { name: "subtropical", maxLat: 30, temps: [14,15,18,22,26,29,31,31,28,23,18,15] },
+  { name: "temperate", maxLat: 50, temps: [3,4,7,12,16,20,22,21,17,12,7,4] },
+  { name: "subarctic", maxLat: 65, temps: [-12,-10,-4,2,8,14,16,14,8,2,-5,-10] },
+  { name: "arctic", maxLat: 90, temps: [-25,-24,-18,-10,-2,4,7,5,-1,-10,-18,-23] },
+];
+
+function getMonthlyTemps(lat) {
+  const absLat = Math.abs(lat || 0);
+  const zone = CLIMATE_ZONES.find(z => absLat <= z.maxLat) || CLIMATE_ZONES[CLIMATE_ZONES.length - 1];
+  // Southern hemisphere: shift 6 months
+  if (lat < 0) return [...zone.temps.slice(6), ...zone.temps.slice(0, 6)];
+  return [...zone.temps];
+}
+
+const COST_CATEGORIES = [
+  { key: "costFlights", label: "Flights", color: "#5DADE2" },
+  { key: "costAccommodation", label: "Accommodation", color: "#48C9B0" },
+  { key: "costFood", label: "Food", color: "#F5B041" },
+  { key: "costActivities", label: "Activities", color: "#AF7AC5" },
+];
+
+const YEAR_ROUTE_COLORS = ["#C8A951", "#5DADE2", "#E74C3C", "#48C9B0", "#AF7AC5", "#DC7633", "#58D68D", "#F06292", "#64B5F6", "#FFD54F"];
 
 const DEFAULT_CHECKLIST_ITEMS = ["Flights", "Accommodation", "Transport", "Activities", "Visa & Docs", "Packing"];
 
@@ -265,6 +291,98 @@ function findRelatedTrips(trip, allTrips) {
     const nameLower = other.name.toLowerCase();
     return destWords.some(w => notesLower.includes(w)) || notesLower.includes(nameLower);
   });
+}
+
+function downloadDataUrl(dataUrl, filename) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function generateTripCard(trip) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 600; canvas.height = 400;
+  const ctx = canvas.getContext("2d");
+  // Background
+  ctx.fillStyle = "#1B2838"; ctx.fillRect(0, 0, 600, 400);
+  ctx.fillStyle = "#C8A951"; ctx.fillRect(0, 380, 600, 20);
+  // Destination name
+  ctx.fillStyle = "#C8A951"; ctx.font = "bold 13px sans-serif"; ctx.letterSpacing = "3px";
+  ctx.fillText("TRAVEL BUCKET LIST", 30, 40);
+  ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 28px Georgia, serif";
+  ctx.fillText(trip.name, 30, 90);
+  ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = "14px sans-serif";
+  ctx.fillText(trip.destination, 30, 118);
+  // Stats
+  const stats = [`£${(trip.costEstimate || 0).toLocaleString()}`, `${trip.nights || 0} nights`, `${"★".repeat(trip.priority || 0)}`, trip.status];
+  ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "13px sans-serif";
+  stats.forEach((s, i) => ctx.fillText(s, 30 + i * 140, 160));
+  // Best months
+  if (trip.bestMonths?.length > 0) {
+    ctx.fillStyle = "#C8A951"; ctx.font = "bold 11px sans-serif";
+    ctx.fillText("BEST MONTHS", 30, 200);
+    ctx.font = "13px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.fillText(trip.bestMonths.map(m => BEST_MONTHS[m - 1]).join(" · "), 30, 220);
+  }
+  // Notes preview
+  if (trip.notes) {
+    ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.font = "italic 12px sans-serif";
+    const noteText = trip.notes.length > 120 ? trip.notes.slice(0, 117) + "..." : trip.notes;
+    const words = noteText.split(" "); let line = ""; let y = 260;
+    words.forEach(w => { const test = line + w + " "; if (ctx.measureText(test).width > 540) { ctx.fillText(line, 30, y); y += 18; line = w + " "; } else line = test; });
+    if (line) ctx.fillText(line, 30, y);
+  }
+  // Brand
+  ctx.fillStyle = "#C8A951"; ctx.font = "bold 10px sans-serif";
+  ctx.fillText("Joe & Sophie", 30, 370);
+  return canvas.toDataURL("image/png");
+}
+
+function generateBoardCard(trips) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1200; canvas.height = 800;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#1B2838"; ctx.fillRect(0, 0, 1200, 800);
+  ctx.fillStyle = "#C8A951"; ctx.fillRect(0, 780, 1200, 20);
+  // Title
+  ctx.fillStyle = "#C8A951"; ctx.font = "bold 13px sans-serif";
+  ctx.fillText("JOE & SOPHIE'S", 40, 50);
+  ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 36px Georgia, serif";
+  ctx.fillText("Travel Bucket List", 40, 95);
+  // Summary stats
+  const totalCost = trips.reduce((s, t) => s + (t.costEstimate || 0), 0);
+  const totalNights = trips.reduce((s, t) => s + (t.nights || 0), 0);
+  const dests = new Set(trips.map(t => t.destination)).size;
+  ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.font = "14px sans-serif";
+  ctx.fillText(`${trips.length} trips · ${dests} destinations · ${totalNights} nights · £${totalCost.toLocaleString()}`, 40, 130);
+  // Continent breakdown
+  const byContinent = {};
+  trips.forEach(t => { const cont = getContinent(t); byContinent[cont] = (byContinent[cont] || 0) + 1; });
+  ctx.fillStyle = "#C8A951"; ctx.font = "bold 11px sans-serif";
+  ctx.fillText("BY CONTINENT", 40, 175);
+  ctx.font = "13px sans-serif"; ctx.fillStyle = "rgba(255,255,255,0.7)";
+  let cx = 40;
+  Object.entries(byContinent).sort((a, b) => b[1] - a[1]).forEach(([cont, count]) => {
+    ctx.fillText(`${cont}: ${count}`, cx, 198); cx += 160;
+  });
+  // Top trips grid
+  ctx.fillStyle = "#C8A951"; ctx.font = "bold 11px sans-serif";
+  ctx.fillText("TOP TRIPS", 40, 240);
+  const top = trips.sort((a, b) => (b.priority || 0) - (a.priority || 0)).slice(0, 20);
+  top.forEach((t, i) => {
+    const col = i % 2; const row = Math.floor(i / 2);
+    const x = 40 + col * 580; const y = 265 + row * 50;
+    ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 14px sans-serif";
+    ctx.fillText(t.name, x, y);
+    ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "12px sans-serif";
+    ctx.fillText(`${t.destination} · ${t.nights}n · £${(t.costEstimate || 0).toLocaleString()} · ${"★".repeat(t.priority || 0)}`, x, y + 18);
+  });
+  ctx.fillStyle = "#C8A951"; ctx.font = "bold 10px sans-serif";
+  ctx.fillText("Joe & Sophie's Travel Bucket List", 40, 770);
+  return canvas.toDataURL("image/png");
 }
 
 export default function TravelBucketList() {
@@ -539,6 +657,7 @@ export default function TravelBucketList() {
             <button onClick={exportPlan} style={{ background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.15)", padding: "6px 10px", borderRadius: 6, cursor: "pointer" }} title="Copy plan to clipboard"><Download size={13} /></button>
             <button onClick={() => setShowCommandPalette(true)} style={{ background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.15)", padding: "6px 10px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontFamily: "DM Sans, sans-serif", fontSize: 11 }} title="Search (Ctrl+K)"><Search size={13} /><span style={{ opacity: 0.6, fontSize: 9 }}>⌘K</span></button>
             <button onClick={() => window.print()} style={{ background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.15)", padding: "6px 10px", borderRadius: 6, cursor: "pointer" }} title="Print"><Printer size={13} /></button>
+            <button onClick={() => { const url = generateBoardCard(trips); downloadDataUrl(url, "travel-bucket-list.png"); }} style={{ background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.15)", padding: "6px 10px", borderRadius: 6, cursor: "pointer" }} title="Share Board as Image"><Image size={13} /></button>
             <div style={{ flex: 1 }} />
             {view !== "timeline" && view !== "dashboard" && (<>
               <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.15)", padding: "6px 10px", borderRadius: 6, fontFamily: "DM Sans, sans-serif", fontSize: 12 }}>
@@ -692,6 +811,7 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
   const containerRef = useRef(null);
   const [dims, setDims] = useState({ w: 900, h: 480 });
   const [rotation, setRotation] = useState([0, -20, 0]);
+  const [showRoute, setShowRoute] = useState(true);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -777,26 +897,58 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
       })
     ).style("cursor", "grab");
 
-    // Route lines for planned trips (only visible arcs)
-    const planned = (allTrips || trips).filter(t => t.plannedYear && t.lat && t.lng)
-      .sort((a, b) => (a.plannedYear - b.plannedYear) || ((a.plannedMonth || 0) - (b.plannedMonth || 0)));
-    for (let i = 0; i < planned.length - 1; i++) {
-      const from = planned[i], to = planned[i + 1];
-      const interp = d3.geoInterpolate([from.lng, from.lat], [to.lng, to.lat]);
-      const points = Array.from({ length: 25 }, (_, j) => {
-        const pt = interp(j / 24);
-        const dist = d3.geoDistance(pt, [-rotation[0], -rotation[1]]);
-        return dist < Math.PI / 2 ? projection(pt) : null;
-      }).filter(p => p);
-      if (points.length > 1) {
-        const lineGen = d3.line().curve(d3.curveBasis);
-        svg.append("path")
-          .attr("d", lineGen(points))
-          .attr("fill", "none")
-          .attr("stroke", c.gold)
-          .attr("stroke-width", 1.5)
-          .attr("stroke-dasharray", "6,4")
-          .attr("opacity", 0.5);
+    // Year-color-coded route lines: London → trip1 → trip2 → ... → London
+    if (showRoute) {
+      const planned = (allTrips || trips).filter(t => t.plannedYear && t.lat && t.lng)
+        .sort((a, b) => (a.plannedYear - b.plannedYear) || ((a.plannedMonth || 0) - (b.plannedMonth || 0)));
+      const routeYears = [...new Set(planned.map(t => t.plannedYear))].sort();
+      const yearColorMap = {};
+      routeYears.forEach((y, i) => { yearColorMap[y] = YEAR_ROUTE_COLORS[i % YEAR_ROUTE_COLORS.length]; });
+
+      // Build full route: London → first → ... → last → London
+      const routePoints = [];
+      if (planned.length > 0) {
+        routePoints.push({ lng: LONDON.lng, lat: LONDON.lat, year: planned[0].plannedYear });
+        planned.forEach(t => routePoints.push({ lng: t.lng, lat: t.lat, year: t.plannedYear }));
+        routePoints.push({ lng: LONDON.lng, lat: LONDON.lat, year: planned[planned.length - 1].plannedYear });
+      }
+
+      for (let i = 0; i < routePoints.length - 1; i++) {
+        const from = routePoints[i], to = routePoints[i + 1];
+        const color = yearColorMap[to.year] || c.gold;
+        const interp = d3.geoInterpolate([from.lng, from.lat], [to.lng, to.lat]);
+        const points = Array.from({ length: 25 }, (_, j) => {
+          const pt = interp(j / 24);
+          const dist = d3.geoDistance(pt, [-rotation[0], -rotation[1]]);
+          return dist < Math.PI / 2 ? projection(pt) : null;
+        }).filter(p => p);
+        if (points.length > 1) {
+          const lineGen = d3.line().curve(d3.curveBasis);
+          svg.append("path").attr("d", lineGen(points)).attr("fill", "none").attr("stroke", color)
+            .attr("stroke-width", 1.5).attr("stroke-dasharray", "6,4").attr("opacity", 0.6)
+            .style("animation", "flightDash 1.2s linear infinite");
+        }
+      }
+
+      // Trip order numbers
+      planned.forEach((t, i) => {
+        const dist = d3.geoDistance([t.lng, t.lat], [-rotation[0], -rotation[1]]);
+        if (dist > Math.PI / 2) return;
+        const [px, py] = projection([t.lng, t.lat]);
+        if (!px || !py) return;
+        const color = yearColorMap[t.plannedYear] || c.gold;
+        svg.append("circle").attr("cx", px).attr("cy", py + 18).attr("r", 7).attr("fill", color).attr("stroke", c.card).attr("stroke-width", 1);
+        svg.append("text").attr("x", px).attr("y", py + 21).attr("text-anchor", "middle").attr("font-size", 8).attr("font-weight", 700).attr("font-family", "DM Sans, sans-serif").attr("fill", "#fff").text(i + 1);
+      });
+
+      // Year color legend (bottom-left)
+      if (routeYears.length > 0) {
+        const lg = svg.append("g").attr("transform", `translate(12, ${dims.h - 12 - routeYears.length * 16})`);
+        lg.append("rect").attr("x", -4).attr("y", -4).attr("width", 60).attr("height", routeYears.length * 16 + 8).attr("rx", 6).attr("fill", c.card).attr("opacity", 0.85).attr("stroke", c.border).attr("stroke-width", 0.5);
+        routeYears.forEach((y, i) => {
+          lg.append("circle").attr("cx", 6).attr("cy", i * 16 + 6).attr("r", 4).attr("fill", yearColorMap[y]);
+          lg.append("text").attr("x", 16).attr("y", i * 16 + 10).attr("font-size", 9).attr("font-family", "DM Sans, sans-serif").attr("font-weight", 600).attr("fill", c.text).text(y);
+        });
       }
     }
 
@@ -880,7 +1032,7 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
       g.on("mouseleave", () => setHoveredTrip(null));
     });
 
-  }, [worldData, trips, allTrips, dims, selectedTrip, hoveredTrip, rotation, c]);
+  }, [worldData, trips, allTrips, dims, selectedTrip, hoveredTrip, rotation, c, showRoute]);
 
   // Auto-rotate to selected trip
   useEffect(() => {
@@ -913,8 +1065,11 @@ function MapView({ trips, allTrips, worldData, selectedTrip, setSelectedTrip, ho
   return (
     <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
       <div ref={containerRef} style={{ flex: "1 1 600px", minWidth: 300 }}>
-        <div style={{ background: c.card, borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div style={{ background: c.card, borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", position: "relative" }}>
           <svg ref={svgRef} width={dims.w} height={dims.h} style={{ display: "block" }} />
+          <button onClick={() => setShowRoute(r => !r)} style={{ position: "absolute", top: 10, right: 10, background: showRoute ? c.gold : c.card, color: showRoute ? "#fff" : c.textMuted, border: `1px solid ${showRoute ? c.gold : c.border}`, borderRadius: 6, padding: "4px 10px", fontFamily: "DM Sans, sans-serif", fontSize: 10, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, backdropFilter: "blur(4px)" }}>
+            <Plane size={10} /> Route
+          </button>
         </div>
       </div>
 
@@ -964,6 +1119,15 @@ function TripDetail({ trip, allTrips, onEdit, onDelete, onClose, onSelectTrip })
           <InfoBox icon={<Star size={14} />} label="Priority" value={"★".repeat(trip.priority || 0) + "☆".repeat(5 - (trip.priority || 0))} />
           <InfoBox icon={<Plane size={14} />} label="Flight" value={getFlightHours(trip) ? `${getFlightHours(trip)}h from London` : trip.category || "—"} />
         </div>
+
+        {trip.lat && (
+          <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: c.cream, borderRadius: 8 }}>
+            <WeatherSparkline lat={trip.lat} bestMonths={trip.bestMonths} width={140} height={36} />
+            <div style={{ fontFamily: "DM Sans, sans-serif", fontSize: 10, color: c.textMuted }}>
+              {(() => { const temps = getMonthlyTemps(trip.lat); const now = new Date().getMonth(); return `${temps[now]}°C now`; })()}
+            </div>
+          </div>
+        )}
 
         {trip.bestMonths?.length > 0 && (
           <div style={{ marginBottom: 16 }}>
@@ -1023,6 +1187,77 @@ function InfoBox({ icon, label, value }) {
   );
 }
 
+function WeatherSparkline({ lat, bestMonths = [], width = 120, height = 32 }) {
+  const c = useTheme();
+  const temps = getMonthlyTemps(lat);
+  const minT = Math.min(...temps);
+  const maxT = Math.max(...temps);
+  const range = maxT - minT || 1;
+  const pad = 2;
+  const points = temps.map((t, i) => {
+    const x = pad + (i / 11) * (width - pad * 2);
+    const y = height - pad - ((t - minT) / range) * (height - pad * 2);
+    return [x, y];
+  });
+  const polyline = points.map(p => p.join(",")).join(" ");
+  return (
+    <svg width={width} height={height} style={{ flexShrink: 0 }}>
+      <polyline points={polyline} fill="none" stroke={c.warmGrey + "60"} strokeWidth={1.5} strokeLinejoin="round" />
+      {bestMonths.map(m => {
+        const idx = m - 1;
+        if (idx < 0 || idx > 11) return null;
+        return <circle key={m} cx={points[idx][0]} cy={points[idx][1]} r={2.5} fill={c.gold} stroke={c.card} strokeWidth={1} />;
+      })}
+      <text x={pad} y={height - 1} fontSize={7} fontFamily="DM Sans, sans-serif" fill={c.textMuted}>{minT}°</text>
+      <text x={width - pad} y={9} fontSize={7} fontFamily="DM Sans, sans-serif" fill={c.textMuted} textAnchor="end">{maxT}°</text>
+    </svg>
+  );
+}
+
+function CostDonut({ trip, size = 100 }) {
+  const c = useTheme();
+  const cats = COST_CATEGORIES.filter(cat => (trip[cat.key] || 0) > 0);
+  if (cats.length === 0) return null;
+  const total = cats.reduce((s, cat) => s + (trip[cat.key] || 0), 0);
+  if (total === 0) return null;
+  const r = size / 2; const ir = r * 0.55;
+  let startAngle = -Math.PI / 2;
+  const slices = cats.map(cat => {
+    const val = trip[cat.key] || 0;
+    const angle = (val / total) * 2 * Math.PI;
+    const x1 = r + Math.cos(startAngle) * r;
+    const y1 = r + Math.sin(startAngle) * r;
+    const x2 = r + Math.cos(startAngle + angle) * r;
+    const y2 = r + Math.sin(startAngle + angle) * r;
+    const ix1 = r + Math.cos(startAngle) * ir;
+    const iy1 = r + Math.sin(startAngle) * ir;
+    const ix2 = r + Math.cos(startAngle + angle) * ir;
+    const iy2 = r + Math.sin(startAngle + angle) * ir;
+    const large = angle > Math.PI ? 1 : 0;
+    const d = `M${ix1},${iy1} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} L${ix2},${iy2} A${ir},${ir} 0 ${large} 0 ${ix1},${iy1}`;
+    startAngle += angle;
+    return { ...cat, val, pct: Math.round(val / total * 100), d };
+  });
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <svg width={size} height={size}>
+        {slices.map(s => <path key={s.key} d={s.d} fill={s.color} stroke={c.card} strokeWidth={1.5} />)}
+        <text x={r} y={r - 2} textAnchor="middle" fontSize={12} fontWeight={700} fontFamily="DM Sans, sans-serif" fill={c.text}>£{total.toLocaleString()}</text>
+        <text x={r} y={r + 10} textAnchor="middle" fontSize={8} fontFamily="DM Sans, sans-serif" fill={c.textMuted}>total</text>
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        {slices.map(s => (
+          <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "DM Sans, sans-serif", fontSize: 11 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+            <span style={{ color: c.text, fontWeight: 500 }}>{s.label}</span>
+            <span style={{ color: c.textMuted, marginLeft: "auto" }}>£{s.val.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TripCard({ trip, onSelect, onEdit, onDelete, isComparing, onToggleCompare, onUpdatePriority, onUpdateStatus, onToggleFavourite, style: cardStyle }) {
   const c = useTheme();
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -1073,6 +1308,7 @@ function TripCard({ trip, onSelect, onEdit, onDelete, isComparing, onToggleCompa
           {costPerNight && <span style={{ background: c.gold + "15", color: c.gold, padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 600 }}>£{costPerNight}/n</span>}
           <span style={{ color: c.gold }}>{"★".repeat(trip.priority || 0)}</span>
           {flightH && <span style={{ display: "flex", alignItems: "center", gap: 2 }}><Plane size={10} style={{ opacity: 0.5 }} />{flightH}h</span>}
+          {trip.lat && <WeatherSparkline lat={trip.lat} bestMonths={trip.bestMonths} width={80} height={20} />}
         </div>
 
         {trip.bestMonths?.length > 0 && (
@@ -1239,6 +1475,24 @@ function TripForm({ trip, onSave, onClose }) {
           </div>
 
           <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 14, marginTop: 4 }}>
+            <div style={{ fontFamily: "DM Sans, sans-serif", fontSize: 12, fontWeight: 600, color: c.navy, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><PoundSterling size={14} /> Cost Breakdown <span style={{ fontSize: 10, color: c.textMuted, fontWeight: 400 }}>(optional)</span></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {COST_CATEGORIES.map(cat => (
+                <div key={cat.key}>
+                  <label style={lS}>{cat.label} (£)</label>
+                  <input value={form[cat.key] || ""} onChange={e => upd(cat.key, e.target.value ? parseInt(e.target.value) : 0)} placeholder="0" style={{ ...iS, borderLeft: `3px solid ${cat.color}` }} type="number" />
+                </div>
+              ))}
+            </div>
+            {COST_CATEGORIES.some(cat => (form[cat.key] || 0) > 0) && (
+              <div style={{ fontFamily: "DM Sans, sans-serif", fontSize: 11, color: c.textMuted, marginTop: 6 }}>
+                Breakdown total: £{COST_CATEGORIES.reduce((s, cat) => s + (parseInt(form[cat.key]) || 0), 0).toLocaleString()}
+                {form.costEstimate ? ` (budget: £${parseInt(form.costEstimate).toLocaleString()})` : ""}
+              </div>
+            )}
+          </div>
+
+          <div style={{ borderTop: `1px solid ${c.border}`, paddingTop: 14, marginTop: 4 }}>
             <div style={{ fontFamily: "DM Sans, sans-serif", fontSize: 12, fontWeight: 600, color: c.navy, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><Clock size={14} /> Timeline Planning</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
@@ -1383,6 +1637,9 @@ function TimelineView({ trips, settings, onUpdateTrip, onEditTrip, onDeleteTrip,
           onClose={() => setSuggestYear(null)}
         />
       )}
+
+      {/* Smart Leave Optimizer */}
+      <LeaveOptimizer trips={trips} settings={settings} onUpdateTrip={onUpdateTrip} />
 
       {/* Main layout: Pool + Grid */}
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
@@ -1932,6 +2189,116 @@ function BuildAYearPanel({ year, trips, settings, onAccept, onClose }) {
 }
 
 /* ============================================================
+   LEAVE OPTIMIZER
+   ============================================================ */
+
+function LeaveOptimizer({ trips, settings, onUpdateTrip }) {
+  const c = useTheme();
+  const [open, setOpen] = useState(false);
+
+  const unplanned = trips.filter(t => !t.plannedYear && t.status !== "Done");
+  const planned = trips.filter(t => t.plannedYear);
+
+  // Build year budgets
+  const years = [];
+  for (let y = settings.timelineStartYear; y <= settings.timelineEndYear; y++) years.push(y);
+  const yearBudgets = {};
+  years.forEach(y => {
+    const yTrips = planned.filter(t => t.plannedYear === y);
+    const used = yTrips.reduce((s, t) => s + (t.nights || 0), 0);
+    yearBudgets[y] = { remaining: settings.annualLeaveDays - used, cost: yTrips.reduce((s, t) => s + (t.costEstimate || 0), 0), occupiedMonths: yTrips.map(t => t.plannedMonth).filter(Boolean) };
+  });
+
+  // Greedy algorithm: sort by priority, fit into best year/month
+  const suggestions = [];
+  const budgetsCopy = JSON.parse(JSON.stringify(yearBudgets));
+  const sorted = [...unplanned].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+  for (const trip of sorted) {
+    const nights = trip.nights || 0;
+    let bestFit = null;
+    for (const y of years) {
+      if (budgetsCopy[y].remaining < nights) continue;
+      const bestMonth = trip.bestMonths?.find(m => !budgetsCopy[y].occupiedMonths.includes(m));
+      const anyMonth = trip.bestMonths?.[0] || null;
+      const month = bestMonth || anyMonth;
+      const isIdeal = !!bestMonth;
+      if (!bestFit || (isIdeal && !bestFit.isIdeal) || (isIdeal === bestFit.isIdeal && y < bestFit.year)) {
+        bestFit = { year: y, month, isIdeal };
+      }
+    }
+    if (bestFit) {
+      suggestions.push({ trip, ...bestFit });
+      budgetsCopy[bestFit.year].remaining -= nights;
+      if (bestFit.month) budgetsCopy[bestFit.year].occupiedMonths.push(bestFit.month);
+    }
+  }
+
+  const totalNights = suggestions.reduce((s, r) => s + (r.trip.nights || 0), 0);
+  const totalCost = suggestions.reduce((s, r) => s + (r.trip.costEstimate || 0), 0);
+
+  if (unplanned.length === 0) return null;
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <button onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", background: c.card, border: `1px solid ${c.gold}40`, borderRadius: 10, cursor: "pointer", fontFamily: "DM Sans, sans-serif", fontSize: 13, fontWeight: 600, color: c.navy, width: "100%" }}>
+        <Zap size={14} style={{ color: c.gold }} />
+        Smart Leave Optimizer
+        <span style={{ fontFamily: "DM Sans, sans-serif", fontSize: 11, color: c.textMuted, fontWeight: 400, marginLeft: 4 }}>
+          ({suggestions.length} trips can be placed)
+        </span>
+        <div style={{ flex: 1 }} />
+        <ChevronDown size={14} style={{ color: c.textMuted, transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }} />
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, padding: "16px 20px", background: c.cream, borderRadius: 12, border: `1px solid ${c.gold}30` }}>
+          {suggestions.length === 0 ? (
+            <div style={{ fontFamily: "DM Sans, sans-serif", fontSize: 13, color: c.textMuted, textAlign: "center", padding: 20 }}>
+              No trips fit the available leave budgets.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {suggestions.map(({ trip, year, month, isIdeal }) => {
+                  const cfg = STATUS_CONFIG[trip.status] || STATUS_CONFIG.Dream;
+                  return (
+                    <div key={trip.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: c.card, borderRadius: 8, border: `1px solid ${c.border}`, borderLeft: `3px solid ${cfg.color}` }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: "DM Sans, sans-serif", fontSize: 13, fontWeight: 600, color: c.navy }}>{trip.name}</div>
+                        <div style={{ fontFamily: "DM Sans, sans-serif", fontSize: 11, color: c.textMuted, marginTop: 1 }}>
+                          {trip.nights}n · £{trip.costEstimate?.toLocaleString()} · {"★".repeat(trip.priority || 0)}
+                        </div>
+                      </div>
+                      <span style={{ fontFamily: "DM Sans, sans-serif", fontSize: 11, color: isIdeal ? COLORS.booked : c.textMuted, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}>
+                        {month ? BEST_MONTHS[month - 1] + " " : ""}{year} {isIdeal && "★"}
+                      </span>
+                      <button onClick={() => onUpdateTrip({ ...trip, plannedYear: year, plannedMonth: month })} style={{ background: c.navy, color: "#fff", border: "none", padding: "6px 14px", borderRadius: 6, fontFamily: "DM Sans, sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        Place
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", gap: 12, marginTop: 12, alignItems: "center" }}>
+                <button
+                  onClick={() => suggestions.forEach(({ trip, year, month }) => onUpdateTrip({ ...trip, plannedYear: year, plannedMonth: month }))}
+                  style={{ background: c.gold, color: c.navy, border: "none", padding: "10px 20px", borderRadius: 8, fontFamily: "DM Sans, sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <Zap size={14} /> Apply All
+                </button>
+                <span style={{ fontFamily: "DM Sans, sans-serif", fontSize: 12, color: c.textMuted }}>
+                  {suggestions.length} trips · {totalNights} nights · £{totalCost.toLocaleString()}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    COMPARISON PANEL
    ============================================================ */
 
@@ -2462,6 +2829,25 @@ function TripDetailModal({ trip, allTrips, onEdit, onDelete, onClose, onSelectTr
             </div>
           </div>
 
+          {/* Climate sparkline */}
+          {trip.lat && (
+            <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", background: c.bg, borderRadius: 10 }}>
+              <WeatherSparkline lat={trip.lat} bestMonths={trip.bestMonths} width={180} height={44} />
+              <div style={{ fontFamily: "DM Sans, sans-serif" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>{(() => { const temps = getMonthlyTemps(trip.lat); return `${temps[new Date().getMonth()]}°C`; })()}</div>
+                <div style={{ fontSize: 9, color: c.textMuted, textTransform: "uppercase" }}>Now</div>
+              </div>
+            </div>
+          )}
+
+          {/* Cost breakdown donut */}
+          {COST_CATEGORIES.some(cat => (trip[cat.key] || 0) > 0) && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontFamily: "DM Sans, sans-serif", fontSize: 10, fontWeight: 600, color: c.textMuted, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 8 }}>Cost Breakdown</div>
+              <CostDonut trip={trip} size={110} />
+            </div>
+          )}
+
           {/* Best months */}
           {trip.bestMonths?.length > 0 && (
             <div style={{ marginBottom: 20 }}>
@@ -2536,6 +2922,7 @@ function TripDetailModal({ trip, allTrips, onEdit, onDelete, onClose, onSelectTr
           {/* Actions */}
           <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
             <button onClick={onEdit} style={{ flex: 1, background: c.text === "#E6EDF3" ? c.gold : c.navy, color: "#fff", border: "none", padding: "10px 16px", borderRadius: 10, fontFamily: "DM Sans, sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Edit2 size={14} /> Edit Trip</button>
+            <button onClick={() => { const url = generateTripCard(trip); downloadDataUrl(url, `${trip.name.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.png`); }} style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, padding: "10px 16px", borderRadius: 10, fontFamily: "DM Sans, sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}><Share2 size={14} /></button>
             <button onClick={onDelete} style={{ background: "#FEE2E2", color: "#DC2626", border: "none", padding: "10px 16px", borderRadius: 10, fontFamily: "DM Sans, sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}><Trash2 size={14} /></button>
           </div>
         </div>
